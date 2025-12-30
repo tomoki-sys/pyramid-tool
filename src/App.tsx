@@ -289,7 +289,6 @@ export default function App() {
             },
           },
         ];
-
         // attempt layout
   const laid = layoutTree(nextCandidates, "root", ROOT_X, ROOT_Y);
 
