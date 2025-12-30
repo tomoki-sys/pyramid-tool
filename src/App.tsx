@@ -23,6 +23,7 @@ const ROOT_Y = 40;
 const ADD_COOLDOWN = 200;
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 140;
+const STORAGE_KEY = "pyramid-tool-nodes";
 
 /* =====================
    型定義
@@ -222,20 +223,46 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [exportFilename, setExportFilename] = useState<string>("pyramid");
 
-  const [nodes, setNodes] = useState<Node<TextNodeData>[]>([
-    {
-      id: "root",
-      type: "text",
-      position: { x: 400, y: 40 },
-      data: {
+  // localStorageから初期データを読み込む関数
+  const loadInitialNodes = (): Node<TextNodeData>[] => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Node<TextNodeData>[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn('localStorage読み込み失敗:', err);
+    }
+    // デフォルト値
+    return [
+      {
         id: "root",
-        parentId: null,
-        label: "ここに結論・主張を入力",
-        width: DEFAULT_NODE_WIDTH,
-        height: DEFAULT_NODE_HEIGHT,
+        type: "text",
+        position: { x: 400, y: 40 },
+        data: {
+          id: "root",
+          parentId: null,
+          label: "ここに結論・主張を入力",
+          width: DEFAULT_NODE_WIDTH,
+          height: DEFAULT_NODE_HEIGHT,
+        },
       },
-    },
-  ]);
+    ];
+  };
+
+  const [nodes, setNodes] = useState<Node<TextNodeData>[]>(() => loadInitialNodes());
+
+  // nodesが変更されたらlocalStorageに自動保存
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
+    } catch (err) {
+      console.warn('localStorage保存失敗:', err);
+    }
+  }, [nodes]);
 
   const nodeTypes = useMemo(() => ({ text: TextNode }), []);
 
