@@ -23,7 +23,9 @@ const ROOT_Y = 40;
 const ADD_COOLDOWN = 200;
 const DEFAULT_NODE_WIDTH = 320;
 const DEFAULT_NODE_HEIGHT = 140;
-const STORAGE_KEY = "pyramid-tool-nodes";
+const STORAGE_KEY_SLOTS = "pyramid-tool-slots-v1";
+const STORAGE_KEY_LEGACY = "pyramid-tool-nodes";
+const MAX_SLOTS = 5;
 
 /* =====================
    型定義
@@ -42,6 +44,59 @@ type NodeActions = {
   deleteNode: (id: string) => void;
   setNodeSize: (id: string, width: number, height: number) => void;
   isAddDisabled: (id: string) => boolean;
+};
+
+/* =====================
+   ユーティリティ
+===================== */
+const createDefaultNodes = (): Node<TextNodeData>[] => [
+  {
+    id: "root",
+    type: "text",
+    position: { x: ROOT_X, y: ROOT_Y },
+    data: {
+      id: "root",
+      parentId: null,
+      label: "ここに結論・主張を入力",
+      width: DEFAULT_NODE_WIDTH,
+      height: DEFAULT_NODE_HEIGHT,
+    },
+  },
+];
+
+const loadInitialSlots = (): Node<TextNodeData>[][] => {
+  const makeSlots = () =>
+    Array.from({ length: MAX_SLOTS }, () => createDefaultNodes());
+
+  try {
+    const savedSlots = localStorage.getItem(STORAGE_KEY_SLOTS);
+    if (savedSlots) {
+      const parsed = JSON.parse(savedSlots);
+      if (Array.isArray(parsed)) {
+        return Array.from({ length: MAX_SLOTS }, (_, i) => {
+          const slot = parsed[i];
+          return Array.isArray(slot) && slot.length > 0
+            ? (slot as Node<TextNodeData>[])
+            : createDefaultNodes();
+        });
+      }
+    }
+
+    // legacy: single tree storage
+    const legacy = localStorage.getItem(STORAGE_KEY_LEGACY);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const slots = makeSlots();
+        slots[0] = parsed as Node<TextNodeData>[];
+        return slots;
+      }
+    }
+  } catch (err) {
+    console.warn('localStorage読み込み失敗:', err);
+  }
+
+  return makeSlots();
 };
 
 /* =====================
@@ -223,46 +278,45 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [exportFilename, setExportFilename] = useState<string>("pyramid");
 
-  // localStorageから初期データを読み込む関数
-  const loadInitialNodes = (): Node<TextNodeData>[] => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as Node<TextNodeData>[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      }
-    } catch (err) {
-      console.warn('localStorage読み込み失敗:', err);
-    }
-    // デフォルト値
-    return [
-      {
-        id: "root",
-        type: "text",
-        position: { x: 400, y: 40 },
-        data: {
-          id: "root",
-          parentId: null,
-          label: "ここに結論・主張を入力",
-          width: DEFAULT_NODE_WIDTH,
-          height: DEFAULT_NODE_HEIGHT,
-        },
-      },
-    ];
-  };
+  const initialSlots = useMemo(() => loadInitialSlots(), []);
+  const [slots, setSlots] = useState<Node<TextNodeData>[][]>(initialSlots);
+  const [slotIndex, setSlotIndex] = useState<number>(0);
+  const [nodes, setNodes] = useState<Node<TextNodeData>[]>(() => initialSlots[0] ?? createDefaultNodes());
+  const slotOptions = useMemo(() => Array.from({ length: MAX_SLOTS }, (_, i) => i), []);
 
-  const [nodes, setNodes] = useState<Node<TextNodeData>[]>(() => loadInitialNodes());
-
-  // nodesが変更されたらlocalStorageに自動保存
+  // nodesが変更されたら現在のスロットに自動保存
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nodes));
-    } catch (err) {
-      console.warn('localStorage保存失敗:', err);
-    }
-  }, [nodes]);
+    setSlots((prev) => {
+      const next = [...prev];
+      next[slotIndex] = nodes;
+      try {
+        localStorage.setItem(STORAGE_KEY_SLOTS, JSON.stringify(next));
+      } catch (err) {
+        console.warn('localStorage保存失敗:', err);
+      }
+      return next;
+    });
+  }, [nodes, slotIndex]);
+
+  const handleSlotChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const nextIndex = Number(e.target.value);
+      if (Number.isNaN(nextIndex)) return;
+
+      // 保存してから切り替え
+      const updatedSlots = [...slots];
+      updatedSlots[slotIndex] = nodes;
+      const nextNodes =
+        updatedSlots[nextIndex] && updatedSlots[nextIndex].length > 0
+          ? updatedSlots[nextIndex]
+          : createDefaultNodes();
+
+      setSlots(updatedSlots);
+      setSlotIndex(nextIndex);
+      setNodes(nextNodes);
+    },
+    [nodes, slotIndex, slots]
+  );
 
   const nodeTypes = useMemo(() => ({ text: TextNode }), []);
 
@@ -570,6 +624,16 @@ export default function App() {
   <NodeActionContext.Provider value={{ setLabel, addChild, deleteNode, setNodeSize, isAddDisabled }}>
       <div style={{ width: "100vw", height: "100vh" }}>
         <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label htmlFor="slot-select" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, color: '#222' }}>スロット：</span>
+            <select id="slot-select" value={slotIndex} onChange={handleSlotChange}>
+              {slotOptions.map((i) => (
+                <option key={i} value={i}>
+                  スロット{i + 1}（{slots[i]?.length ?? 0}ノード）
+                </option>
+              ))}
+            </select>
+          </label>
           <button onClick={zoomOut} title="ズームアウト">－</button>
           <button onClick={fitViewHandler} title="全体を表示">全体</button>
           <button onClick={zoomIn} title="ズームイン">＋</button>
